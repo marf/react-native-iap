@@ -139,6 +139,7 @@ function checkNativeiOSAvailable(): Promise<void> {
     return Promise.reject(new Error(IAPErrorCode.E_IAP_NOT_AVAILABLE));
   }
 }
+
 /**
  * Init module for purchase flow. Required on Android. In ios it will check wheter user canMakePayment.
  * @returns {Promise<boolean>}
@@ -171,6 +172,22 @@ export const endConnection = (): Promise<void> =>
         return Promise.resolve();
       }
       return RNIapIos.endConnection();
+    },
+    android: async () => Promise.resolve(),
+  })();
+
+/**
+ * Get user storefront.
+ * @returns {Promise<void>}
+ */
+export const getStoreFront = (): Promise<string|null> =>
+  Platform.select({
+    ios: async () => {
+      if (!RNIapIos) {
+        console.warn('Native ios module does not exists');
+        return Promise.resolve();
+      }
+      return RNIapIos.getStoreFront();
     },
     android: async () => {
       if (!RNIapModule) {
