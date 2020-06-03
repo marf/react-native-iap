@@ -738,6 +738,7 @@ const iapUtils = {
   IAPErrorCode,
   initConnection,
   endConnection,
+  getStoreFront,
   endConnectionAndroid,
   getProducts,
   getSubscriptions,
