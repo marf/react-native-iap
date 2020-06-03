@@ -111,6 +111,17 @@ RCT_EXPORT_MODULE();
     return @[@"iap-promoted-product", @"purchase-updated", @"purchase-error"];
 }
 
+RCT_EXPORT_METHOD(getStoreFront:(RCTPromiseResolveBlock)resolve
+                  reject:(RCTPromiseRejectBlock)reject) {
+    if (@available(iOS 13.0, *)) {
+        SKStorefront* skStoreFront = [SKStorefront alloc];
+        
+        resolve(skStoreFront.countryCode);
+    } else {
+        resolve(nil);
+    }
+}
+
 RCT_EXPORT_METHOD(canMakePayments:(RCTPromiseResolveBlock)resolve
                   reject:(RCTPromiseRejectBlock)reject) {
     [[SKPaymentQueue defaultQueue] addTransactionObserver:self];
