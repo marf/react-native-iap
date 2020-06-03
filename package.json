@@ -1,6 +1,6 @@
 {
-  "name": "react-native-iap",
-  "version": "4.4.9",
+  "name": "@marf95/react-native-iap",
+  "version": "1.0.0",
   "description": "React Native In App Purchase Module.",
   "main": "index.js",
   "types": "index.d.ts",
@@ -18,7 +18,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/dooboolab/react-native-iap"
+    "url": "git+https://github.com/marf/react-native-iap"
   },
   "keywords": [
     "react-native",
