@@ -734,6 +734,17 @@ export const getPendingPurchasesIOS = (): Promise<ProductPurchase[]> => {
   }
 };
 
+/**
+ * Get the pending purchases in IOS.
+ * @returns {Promise<ProductPurchase[]>}
+ */
+export const getStoreFrontIOS = (): Promise<string | null> => {
+  if (Platform.OS === 'ios') {
+    checkNativeiOSAvailable();
+    return RNIapIos.getStoreFront();
+  }
+};
+
 const iapUtils = {
   IAPErrorCode,
   initConnection,
