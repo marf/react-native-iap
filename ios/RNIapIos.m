@@ -331,6 +331,19 @@ RCT_EXPORT_METHOD(getPendingTransactions:(RCTPromiseResolveBlock)resolve
     }];
 }
 
+RCT_EXPORT_METHOD(getStoreFront:(RCTPromiseResolveBlock)resolve
+                  reject:(RCTPromiseRejectBlock)reject) {
+    if (@available(iOS 13.0, *)) {
+        SKStorefront* skStoreFront = [SKPaymentQueue defaultQueue].storefront;
+        if(skStoreFront != nil)
+            resolve(skStoreFront.countryCode);
+        else
+            resolve(nil);
+    } else {
+        resolve(nil);
+    }
+}
+
 #pragma mark ===== StoreKit Delegate
 
 -(void)productsRequest:(SKProductsRequest *)request didReceiveResponse:(SKProductsResponse *)response {
