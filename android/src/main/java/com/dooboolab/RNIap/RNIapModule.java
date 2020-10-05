@@ -177,6 +177,34 @@ public class RNIapModule extends ReactContextBaseJavaModule implements Purchases
     }
   }
 
+  private void consumeItems(final List<Purchase> purchases, final Promise promise) {
+    consumeItems(purchases, promise, BillingClient.BillingResponseCode.OK);
+  }
+
+  private void consumeItems(final List<Purchase> purchases, final Promise promise, final int expectedResponseCode) {
+    for (Purchase purchase : purchases) {
+      final ConsumeParams consumeParams = ConsumeParams.newBuilder()
+          .setPurchaseToken(purchase.getPurchaseToken())
+          .build();
+
+      final ConsumeResponseListener listener = new ConsumeResponseListener() {
+        @Override
+        public void onConsumeResponse(BillingResult billingResult, String outToken) {
+          if (billingResult.getResponseCode() != expectedResponseCode) {
+            DoobooUtils.getInstance().rejectPromiseWithBillingError(promise, billingResult.getResponseCode());
+            return;
+          }
+          try {
+            promise.resolve(true);
+          } catch (ObjectAlreadyConsumedException oce) {
+            promise.reject(oce.getMessage());
+          }
+        }
+      };
+      billingClient.consumeAsync(consumeParams, listener);
+    }
+  }
+
   @ReactMethod
   public void refreshItems(final Promise promise) {
 //    Purchase.PurchasesResult purchasesResult = billingClient.queryPurchases(BillingClient.SkuType.INAPP);
@@ -196,29 +224,42 @@ public class RNIapModule extends ReactContextBaseJavaModule implements Purchases
           return;
         }
 
-        for (Purchase purchase : purchases) {
-          final ConsumeParams consumeParams = ConsumeParams.newBuilder()
-              .setPurchaseToken(purchase.getPurchaseToken())
-              .setDeveloperPayload(purchase.getDeveloperPayload())
-              .build();
+        consumeItems(purchases, promise);
+      }
+    });
+  }
 
-         final ConsumeResponseListener listener = new ConsumeResponseListener() {
-            @Override
-            public void onConsumeResponse(BillingResult billingResult, String outToken) {
-              if (billingResult.getResponseCode() != BillingClient.BillingResponseCode.OK) {
-                DoobooUtils.getInstance().rejectPromiseWithBillingError(promise, billingResult.getResponseCode());
-                return;
-              }
-              array.pushString(outToken);
-              try {
-                promise.resolve(true);
-              } catch (ObjectAlreadyConsumedException oce) {
-                promise.reject(oce.getMessage());
-              }
-            }
-          };
-          billingClient.consumeAsync(consumeParams, listener);
+  @ReactMethod
+  public void flushFailedPurchasesCachedAsPending(final Promise promise) {
+    ensureConnection(promise, new Runnable() {
+      @Override
+      public void run() {
+        final WritableNativeArray array = new WritableNativeArray();
+        Purchase.PurchasesResult result = billingClient.queryPurchases(BillingClient.SkuType.INAPP);
+        if (result == null) {
+          // No results for query
+          promise.resolve(false);
+          return;
         }
+        final List<Purchase> purchases = result.getPurchasesList();
+        if (purchases == null) {
+          // No purchases found
+          promise.resolve(false);
+          return;
+        }
+        final List<Purchase> pendingPurchases = new ArrayList<>();
+        for (Purchase purchase : purchases) {
+          // we only want to try to consume PENDING items, in order to force cache-refresh for them
+          if (purchase.getPurchaseState() == Purchase.PurchaseState.PENDING) {
+            pendingPurchases.add(purchase);
+          }
+        }
+        if (pendingPurchases.size() == 0) {
+          promise.resolve(false);
+          return;
+        }
+
+        consumeItems(pendingPurchases, promise, BillingClient.BillingResponseCode.ITEM_NOT_OWNED);
       }
     });
   }
@@ -271,7 +312,7 @@ public class RNIapModule extends ReactContextBaseJavaModule implements Purchases
               item.putString("introductoryPrice", skuDetails.getIntroductoryPrice());
               item.putString("subscriptionPeriodAndroid", skuDetails.getSubscriptionPeriod());
               item.putString("freeTrialPeriodAndroid", skuDetails.getFreeTrialPeriod());
-              item.putString("introductoryPriceCyclesAndroid", skuDetails.getIntroductoryPriceCycles());
+              item.putString("introductoryPriceCyclesAndroid", String.valueOf(skuDetails.getIntroductoryPriceCycles()));
               item.putString("introductoryPricePeriodAndroid", skuDetails.getIntroductoryPricePeriod());
               // new
               item.putString("iconUrl", skuDetails.getIconUrl());
@@ -376,9 +417,8 @@ public class RNIapModule extends ReactContextBaseJavaModule implements Purchases
     final String type,
     final String sku,
     final String oldSku,
+    final String purchaseToken,
     final Integer prorationMode,
-    final String developerId,
-    final String accountId,
     final Promise promise
   ) {
     final Activity activity = getCurrentActivity();
@@ -408,14 +448,15 @@ public class RNIapModule extends ReactContextBaseJavaModule implements Purchases
           error.putString("debugMessage", debugMessage);
           error.putString("code", PROMISE_BUY_ITEM);
           error.putString("message", debugMessage);
+          error.putString("productId", sku);
           sendEvent(reactContext, "purchase-error", error);
           promise.reject(PROMISE_BUY_ITEM, debugMessage);
           return;
         }
         builder.setSkuDetails(selectedSku);
 
-        if (oldSku != null) {
-          builder.setOldSku(oldSku);
+        if (oldSku != null && purchaseToken != null) {
+          builder.setOldSku(oldSku, purchaseToken);
         }
 
         if (prorationMode != null && prorationMode != -1) {
@@ -427,6 +468,7 @@ public class RNIapModule extends ReactContextBaseJavaModule implements Purchases
               error.putString("debugMessage", debugMessage);
               error.putString("code", PROMISE_BUY_ITEM);
               error.putString("message", debugMessage);
+              error.putString("productId", sku);
               sendEvent(reactContext, "purchase-error", error);
               promise.reject(PROMISE_BUY_ITEM, debugMessage);
               return;
@@ -440,13 +482,6 @@ public class RNIapModule extends ReactContextBaseJavaModule implements Purchases
           } else {
             builder.setReplaceSkusProrationMode(BillingFlowParams.ProrationMode.UNKNOWN_SUBSCRIPTION_UPGRADE_DOWNGRADE_POLICY);
           }
-        }
-
-        if (accountId != null) {
-          builder.setAccountId(accountId);
-        }
-        if (developerId != null) {
-          builder.setDeveloperId(developerId);
         }
 
         BillingFlowParams flowParams = builder.build();
@@ -464,7 +499,6 @@ public class RNIapModule extends ReactContextBaseJavaModule implements Purchases
         AcknowledgePurchaseParams acknowledgePurchaseParams =
                 AcknowledgePurchaseParams.newBuilder()
                         .setPurchaseToken(token)
-                        .setDeveloperPayload(developerPayLoad)
                         .build();
                         
         billingClient.acknowledgePurchase(acknowledgePurchaseParams, new AcknowledgePurchaseResponseListener() {
@@ -494,7 +528,6 @@ public class RNIapModule extends ReactContextBaseJavaModule implements Purchases
   public void consumeProduct(final String token, final String developerPayLoad, final Promise promise) {
     final ConsumeParams params = ConsumeParams.newBuilder()
         .setPurchaseToken(token)
-        .setDeveloperPayload(developerPayLoad)
         .build();
     billingClient.consumeAsync(params, new ConsumeResponseListener() {
       @Override

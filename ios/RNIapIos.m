@@ -1,5 +1,4 @@
 #import "RNIapIos.h"
-#import "IAPPromotionObserver.h"
 
 #import <React/RCTLog.h>
 #import <React/RCTConvert.h>
@@ -7,7 +6,7 @@
 #import <StoreKit/StoreKit.h>
 
 ////////////////////////////////////////////////////     _//////////_  // Private Members
-@interface RNIapIos() <IAPPromotionObserverDelegate, SKRequestDelegate> {
+@interface RNIapIos() <SKRequestDelegate> {
     NSMutableDictionary *promisesByKey;
     dispatch_queue_t myQueue;
     BOOL hasListeners;
@@ -23,7 +22,6 @@
     if ((self = [super init])) {
         promisesByKey = [NSMutableDictionary dictionary];
         pendingTransactionWithAutoFinish = false;
-        [IAPPromotionObserver sharedObserver].delegate = self;
     }
     myQueue = dispatch_queue_create("reject", DISPATCH_QUEUE_SERIAL);
     validProducts = [NSMutableArray array];
@@ -54,7 +52,6 @@
 - (void)addListener:(NSString *)eventName {
     [super addListener:eventName];
 
-    SKPayment *promotedPayment = [IAPPromotionObserver sharedObserver].payment;
     if ([eventName isEqualToString:@"iap-promoted-product"] && promotedPayment != nil) {
         [self sendEventWithName:@"iap-promoted-product" body:promotedPayment.productIdentifier];
     }
@@ -95,12 +92,14 @@
     }
 }
 
-////////////////////////////////////////////////////     _//////////_  // IAPPromotionObserverDelegate
-- (BOOL)shouldAddStorePayment:(SKPayment *)payment forProduct:(SKProduct *)product {
-    if (hasListeners) {
-        [self sendEventWithName:@"iap-promoted-product" body:product.productIdentifier];
-    }
-    return NO;
+- (BOOL)paymentQueue:(SKPaymentQueue *)queue shouldAddStorePayment:(SKPayment *)payment forProduct:(SKProduct *)product {
+  promotedProduct = product;
+  promotedPayment = payment;
+
+  if (hasListeners) {
+      [self sendEventWithName:@"iap-promoted-product" body:product.productIdentifier];
+  }
+  return NO;
 }
 
 ////////////////////////////////////////////////////     _//////////_//      EXPORT_MODULE
@@ -128,7 +127,6 @@ RCT_EXPORT_METHOD(canMakePayments:(RCTPromiseResolveBlock)resolve
                   reject:(RCTPromiseRejectBlock)reject) {
     [[SKPaymentQueue defaultQueue] addTransactionObserver:self];
     BOOL canMakePayments = [SKPaymentQueue canMakePayments];
-    [IAPPromotionObserver startObserving];
     resolve(@(canMakePayments));
 }
 
@@ -170,8 +168,7 @@ RCT_EXPORT_METHOD(buyProduct:(NSString*)sku
         }
     }
     if (product) {
-        NSString *key = RCTKeyForInstance(product.productIdentifier);
-        [self addPromiseForKey:key resolve:resolve reject:reject];
+        [self addPromiseForKey:product.productIdentifier resolve:resolve reject:reject];
             
         SKMutablePayment *payment = [SKMutablePayment paymentWithProduct:product];
         [[SKPaymentQueue defaultQueue] addPayment:payment];
@@ -181,6 +178,7 @@ RCT_EXPORT_METHOD(buyProduct:(NSString*)sku
                                  @"Invalid product ID.", @"debugMessage",
                                  @"E_DEVELOPER_ERROR", @"code",
                                  @"Invalid product ID.", @"message",
+                                 sku, @"productId",
                                  nil
                                  ];
             [self sendEventWithName:@"purchase-error" body:err];
@@ -205,8 +203,7 @@ RCT_EXPORT_METHOD(buyProductWithOffer:(NSString*)sku
         }
     }
     if (product) {
-        NSString *key = RCTKeyForInstance(product.productIdentifier);
-        [self addPromiseForKey:key resolve:resolve reject:reject];
+        [self addPromiseForKey:product.productIdentifier resolve:resolve reject:reject];
 
         payment = [SKMutablePayment paymentWithProduct:product];
         #if __IPHONE_12_2
@@ -229,6 +226,7 @@ RCT_EXPORT_METHOD(buyProductWithOffer:(NSString*)sku
                                  @"Invalid product ID.", @"debugMessage",
                                  @"Invalid product ID.", @"message",
                                  @"E_DEVELOPER_ERROR", @"code",
+                                 sku, @"productId",
                                  nil
                                  ];
             [self sendEventWithName:@"purchase-error" body:err];
@@ -261,6 +259,7 @@ RCT_EXPORT_METHOD(buyProductWithQuantityIOS:(NSString*)sku
                                  @"Invalid product ID.", @"debugMessage",
                                  @"Invalid product ID.", @"message",
                                  @"E_DEVELOPER_ERROR", @"code",
+                                 sku, @"productId",
                                  nil
                                  ];
             [self sendEventWithName:@"purchase-error" body:err];
@@ -287,13 +286,11 @@ RCT_EXPORT_METHOD(clearProducts) {
 RCT_EXPORT_METHOD(promotedProduct:(RCTPromiseResolveBlock)resolve
                   reject:(RCTPromiseRejectBlock)reject) {
     NSLog(@"\n\n\n  ***  get promoted product. \n\n.");
-    SKProduct *promotedProduct = [IAPPromotionObserver sharedObserver].product;
     resolve(promotedProduct ? promotedProduct.productIdentifier : [NSNull null]);
 }
 
 RCT_EXPORT_METHOD(buyPromotedProduct:(RCTPromiseResolveBlock)resolve
                   reject:(RCTPromiseRejectBlock)reject) {
-    SKPayment *promotedPayment = [IAPPromotionObserver sharedObserver].payment;
     if (promotedPayment) {
         NSLog(@"\n\n\n  ***  buy promoted product. \n\n.");
         [[SKPaymentQueue defaultQueue] addPayment:promotedPayment];
@@ -402,24 +399,43 @@ RCT_EXPORT_METHOD(getPendingTransactions:(RCTPromiseResolveBlock)resolve
 -(void)paymentQueue:(SKPaymentQueue *)queue updatedTransactions:(NSArray *)transactions {
     for (SKPaymentTransaction *transaction in transactions) {
         switch (transaction.transactionState) {
-            case SKPaymentTransactionStatePurchasing:
+            case SKPaymentTransactionStatePurchasing: {
                 NSLog(@"\n\n Purchase Started !! \n\n");
                 break;
-            case SKPaymentTransactionStatePurchased:
+            }
+            case SKPaymentTransactionStatePurchased: {
                 NSLog(@"\n\n\n\n\n Purchase Successful !! \n\n\n\n\n.");
                 [self purchaseProcess:transaction];
                 break;
-            case SKPaymentTransactionStateRestored:
+            }
+            case SKPaymentTransactionStateRestored: {
                 NSLog(@"Restored ");
                 [[SKPaymentQueue defaultQueue] finishTransaction:transaction];
                 break;
-            case SKPaymentTransactionStateDeferred:
+            }
+            case SKPaymentTransactionStateDeferred: {
                 NSLog(@"Deferred (awaiting approval via parental controls, etc.)");
+                dispatch_sync(myQueue, ^{
+                    if (hasListeners) {
+                        NSDictionary *err = [NSDictionary dictionaryWithObjectsAndKeys:
+                                             @"The payment was deferred (awaiting approval via parental controls for instance)", @"debugMessage",
+                                             @"E_DEFERRED_PAYMENT", @"code",
+                                             @"The payment was deferred (awaiting approval via parental controls for instance)", @"message",
+                                             transaction.payment.productIdentifier, @"productId",
+                                             nil
+                                             ];
+                        [self sendEventWithName:@"purchase-error" body:err];
+                    }
+                    [self rejectPromisesForKey:transaction.payment.productIdentifier
+                                          code:@"E_DEFERRED_PAYMENT"
+                                       message:@"The payment was deferred (awaiting approval via parental controls for instance)"
+                                         error:nil];
+                });
                 break;
-            case SKPaymentTransactionStateFailed:
+            }
+            case SKPaymentTransactionStateFailed: {
                 NSLog(@"\n\n\n\n\n\n Purchase Failed  !! \n\n\n\n\n");
                 [[SKPaymentQueue defaultQueue] finishTransaction:transaction];
-                NSString *key = RCTKeyForInstance(transaction.payment.productIdentifier);
                 dispatch_sync(myQueue, ^{
                     if (hasListeners) {
                         NSString *responseCode = [@(transaction.error.code) stringValue];
@@ -428,15 +444,17 @@ RCT_EXPORT_METHOD(getPendingTransactions:(RCTPromiseResolveBlock)resolve
                                              transaction.error.localizedDescription, @"debugMessage",
                                              [self standardErrorCode:(int)transaction.error.code], @"code",
                                              transaction.error.localizedDescription, @"message",
+                                             transaction.payment.productIdentifier, @"productId",
                                              nil
                                              ];
                         [self sendEventWithName:@"purchase-error" body:err];
                     }
-                    [self rejectPromisesForKey:key code:[self standardErrorCode:(int)transaction.error.code]
+                    [self rejectPromisesForKey:transaction.payment.productIdentifier code:[self standardErrorCode:(int)transaction.error.code]
                                        message:transaction.error.localizedDescription
                                          error:transaction.error];
                 });
                 break;
+            }
         }
     }
 }
@@ -481,7 +499,7 @@ RCT_EXPORT_METHOD(getPendingTransactions:(RCTPromiseResolveBlock)resolve
         pendingTransactionWithAutoFinish = false;
     }
     [self getPurchaseData:transaction withBlock:^(NSDictionary *purchase) {
-        [self resolvePromisesForKey:RCTKeyForInstance(transaction.payment.productIdentifier) value:purchase];
+        [self resolvePromisesForKey:transaction.payment.productIdentifier value:purchase];
 
         // additionally send event
         if (self->hasListeners) {
@@ -600,7 +618,7 @@ RCT_EXPORT_METHOD(getPendingTransactions:(RCTPromiseResolveBlock)resolve
     NSArray *discounts;
     #if __IPHONE_12_2
     if (@available(iOS 12.2, *)) {
-        discounts = [self getDiscountData:[product.discounts copy]];
+        discounts = [self getDiscountData:product];
     }
     #endif
 
@@ -625,18 +643,18 @@ RCT_EXPORT_METHOD(getPendingTransactions:(RCTPromiseResolveBlock)resolve
     return obj;
 }
 
-- (NSMutableArray *)getDiscountData:(NSArray *)discounts {
-    NSMutableArray *mappedDiscounts = [NSMutableArray arrayWithCapacity:[discounts count]];
+- (NSMutableArray *)getDiscountData:(SKProduct *)product {
+    NSMutableArray *mappedDiscounts = [NSMutableArray arrayWithCapacity:[product.discounts count]];
     NSString *localizedPrice;
     NSString *paymendMode;
     NSString *subscriptionPeriods;
     NSString *discountType;
 
     if (@available(iOS 11.2, *)) {
-        for(SKProductDiscount *discount in discounts) {
+        for(SKProductDiscount *discount in product.discounts) {
             NSNumberFormatter *formatter = [[NSNumberFormatter alloc] init];
             formatter.numberStyle = NSNumberFormatterCurrencyStyle;
-            formatter.locale = discount.priceLocale;
+            formatter.locale = discount.priceLocale ?: product.priceLocale;
             localizedPrice = [formatter stringFromNumber:discount.price];
             NSString *numberOfPeriods;
 
@@ -700,7 +718,7 @@ RCT_EXPORT_METHOD(getPendingTransactions:(RCTPromiseResolveBlock)resolve
                                         discountIdentifier, @"identifier",
                                         discountType, @"type",
                                         numberOfPeriods, @"numberOfPeriods",
-                                        discount.price, @"price",
+                                        [discount.price stringValue], @"price",
                                         localizedPrice, @"localizedPrice",
                                         paymendMode, @"paymentMode",
                                         subscriptionPeriods, @"subscriptionPeriod",

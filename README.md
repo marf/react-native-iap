@@ -114,17 +114,18 @@ Method                                                                          
 `getSubscriptions(skus: string[])`<ul><li>skus: array of Subscription ID/sku</li></ul> | `Promise<Subscription[]>` | Get a list of subscriptions.<br>Note: With before `iOS 11.2`, this method _will_ also return products if they are included in your list of SKUs. This is because we cannot differentiate between IAP products and subscriptions prior to `iOS 11.2`.
 `getPurchaseHistory()`                                                                 | `Promise<Purchase>`       | Gets an inventory of purchases made by the user regardless of consumption status (where possible).
 `getAvailablePurchases()`                                                              | `Promise<Purchase[]>`     | Get all purchases made by the user (either non-consumable, or haven't been consumed yet). On Android, it can be called at app launch, but on iOS, only at restoring purchase is recommended (See: [#747](https://github.com/dooboolab/react-native-iap/issues/747)).
-`requestPurchase(sku: string, andDangerouslyFinishTransactionAutomatically: boolean, developerIdAndroid, accountIdAndroid)`<ul><li>sku: product ID/sku</li><li>developerIdAndroid: Specify an optional obfuscated string of developer profile name.</li><li>userIdAndroid: Specify an optional obfuscated string that is uniquely associated with the user's account in.</li></ul>                    | `Promise<ProductPurchase>`       | Request a purchase.<br>`purchaseUpdatedListener` will receive the result.<br/> `andDangerouslyFinishTransactionAutomatically` defaults to `true` for backwards compatibility but this is deprecated and you should set it to false once you're [manually finishing your transactions][a-purchase-flow].
+`requestPurchase(sku: string, andDangerouslyFinishTransactionAutomatically: boolean)`<ul></ul>                    | `Promise<ProductPurchase>`       | Request a purchase.<br>`purchaseUpdatedListener` will receive the result.<br/> `andDangerouslyFinishTransactionAutomatically` defaults to `true` for backwards compatibility but this is deprecated and you should set it to false once you're [manually finishing your transactions][a-purchase-flow].
 `requestPurchaseWithQuantityIOS(sku: string, quantity: number)`<ul><li>sku: product ID/sku</li><li>quantity: Quantity</li></ul>                 | `void` | **iOS only**<br>Buy a product with a specified quantity.<br>`purchaseUpdatedListener` will receive the result
 _*deprecated_<br>~~`buySubscription(sku: string)`~~<ul><li>sku: subscription ID/sku</li></ul> | `void` | Create (buy) a subscription to a sku.
-`requestSubscription(sku: string, andDangerouslyFinishTransactionAutomaticallyIOS: boolean, oldSkuAndroid: string, prorationModeAndroid: string, developerIdAndroid: string, userIdAndroid: string)`<ul><li>sku: subscription ID/sku</li></ul>                  | `void`   | Create (buy) a subscription to a sku.
+`requestSubscription(sku: string, andDangerouslyFinishTransactionAutomaticallyIOS: boolean, oldSkuAndroid: string, purchaseTokenAndroid: string, prorationModeAndroid: string)`<ul><li>sku: subscription ID/sku</li></ul>                  | `void`   | Create (buy) a subscription to a sku.
 `clearTransactionIOS()` | `void`            | **iOS only**<br>Clear up unfinished transanctions which sometimes cause problems. Read more in [#257](https://github.com/dooboolab/react-native-iap/issues/257), [#801](https://github.com/dooboolab/react-native-iap/issues/801).
 `clearProductsIOS()`    | `void`            | **iOS only**<br>Clear all products and subscriptions.<br>Read more in below README.
 `getReceiptIOS()`   | `Promise<string>` | **iOS only**<br>Get the current receipt.
 `getPendingPurchasesIOS()` | `Promise<ProductPurchase[]>` | **IOS only**<br>Gets all the transactions which are pending to be finished.
-`validateReceiptIos(body: Object, devMode: boolean)`<ul><li>body: receiptBody</li><li>devMode: isTest</li></ul> | `Object\|boolean` | **iOS only**<br>Validate receipt.
+`validateReceiptIos(body: Record<string, unknown>, devMode: boolean)`<ul><li>body: receiptBody</li><li>devMode: isTest</li></ul> | `Object\|boolean` | **iOS only**<br>Validate receipt.
 `endConnection()` | `Promise<void>` | End billing connection.
-`consumeAllItemsAndroid()` | `Promise<void>` | **Android only**<br>Consume all items so they are able to buy again.
+`consumeAllItemsAndroid()` | `Promise<void>` | **Android only**<br>Consume all items so they are able to buy again. ⚠️ Use in dev only (as you should deliver the purchased feature BEFORE consuming it)
+`flushFailedPurchasesCachedAsPendingAndroid()` | `Promise<void>` | **Android only**<br>Consume all 'ghost' purchases (that is, pending payment that already failed but is still marked as pending in Play Store cache)
 `consumePurchaseAndroid(token: string, payload?: string)`<ul><li>token: purchase token</li><li>payload: developerPayload</li></ul>     | `void` | **Android only**<br>Finish a purchase. All purchases should be finished once you have delivered the purchased items. E.g. by recording the purchase in your database or on your server.
 `acknowledgePurchaseAndroid(token: string, payload?: string)`<ul><li>token: purchase token</li><li>payload: developerPayload</li></ul> | `Promise<PurchaseResult>` | **Android only**<br>Acknowledge a product. Like above for non-consumables. Use `finishTransaction` instead for both platforms since version 4.1.0 or later.
 `consumePurchaseAndroid(token: string, payload?: string)`<ul><li>token: purchase token</li><li>payload: developerPayload</li></ul>     | `Promise<PurchaseResult>` | **Android only**<br>Consume a product. Like above for consumables. Use `finishTransaction` instead for both platforms since version 4.1.0 or later.
@@ -323,7 +324,7 @@ Purchase
 2. Purchases are inter-session `asynchronuous` meaning requests that are made may take several hours
    to complete and continue to exist even after the app has been closed or crashed.
 3. The purchase may be pending and hard to track what has been done ([example][issue-307-c1]).
-4. Thus the Billing Flow is an `event` pattern than a `callback` pattern.
+4. Thus the Billing Flow is an `event` pattern rather than a `callback` pattern.
 
 Once you have called `getProducts()`, and you have a valid response, you can call `requestPurchase()`.
 Subscribable products can be purchased just like consumable products and users
@@ -347,42 +348,52 @@ class RootComponent extends Component<*> {
   purchaseErrorSubscription = null
 
   componentDidMount() {
-    this.purchaseUpdateSubscription = purchaseUpdatedListener((purchase: InAppPurchase | SubscriptionPurchase | ProductPurchase ) => {
-      console.log('purchaseUpdatedListener', purchase);
-      const receipt = purchase.transactionReceipt;
-      if (receipt) {
-        yourAPI.deliverOrDownloadFancyInAppPurchase(purchase.transactionReceipt)
-        .then((deliveryResult) => {
-          if (isSuccess(deliveryResult)) {
-            // Tell the store that you have delivered what has been paid for.
-            // Failure to do this will result in the purchase being refunded on Android and
-            // the purchase event will reappear on every relaunch of the app until you succeed
-            // in doing the below. It will also be impossible for the user to purchase consumables
-            // again untill you do this.
-            if (Platform.OS === 'ios') {
-              RNIap.finishTransactionIOS(purchase.transactionId);
-            } else if (Platform.OS === 'android') {
-              // If consumable (can be purchased again)
-              RNIap.consumePurchaseAndroid(purchase.purchaseToken);
-              // If not consumable
-              RNIap.acknowledgePurchaseAndroid(purchase.purchaseToken);
-            }
+    Iap.initConnection().then(() => {
+      // we make sure that "ghost" pending payment are removed
+      // (ghost = failed pending payment that are still marked as pending in Google's native Vending module cache)
+      Iap.flushFailedPurchasesCachedAsPendingAndroid().catch(() => {
+        // exception can happen here if:
+        // - there are pending purchases that are still pending (we can't consume a pending purchase)
+        // in any case, you might not want to do anything special with the error
+      }).then(() => {
+        this.purchaseUpdateSubscription = purchaseUpdatedListener((purchase: InAppPurchase | SubscriptionPurchase | ProductPurchase ) => {
+          console.log('purchaseUpdatedListener', purchase);
+          const receipt = purchase.transactionReceipt;
+          if (receipt) {
+            yourAPI.deliverOrDownloadFancyInAppPurchase(purchase.transactionReceipt)
+            .then( async (deliveryResult) => {
+              if (isSuccess(deliveryResult)) {
+                // Tell the store that you have delivered what has been paid for.
+                // Failure to do this will result in the purchase being refunded on Android and
+                // the purchase event will reappear on every relaunch of the app until you succeed
+                // in doing the below. It will also be impossible for the user to purchase consumables
+                // again until you do this.
+                if (Platform.OS === 'ios') {
+                  await RNIap.finishTransactionIOS(purchase.transactionId);
+                } else if (Platform.OS === 'android') {
+                  // If consumable (can be purchased again)
+                  await RNIap.consumePurchaseAndroid(purchase.purchaseToken);
+                  // If not consumable
+                  await RNIap.acknowledgePurchaseAndroid(purchase.purchaseToken);
+                }
 
-            // From react-native-iap@4.1.0 you can simplify above `method`. Try to wrap the statement with `try` and `catch` to also grab the `error` message.
-            // If consumable (can be purchased again)
-            RNIap.finishTransaction(purchase, true);
-            // If not consumable
-            RNIap.finishTransaction(purchase, false);
-          } else {
-            // Retry / conclude the purchase is fraudulent, etc...
+                // From react-native-iap@4.1.0 you can simplify above `method`. Try to wrap the statement with `try` and `catch` to also grab the `error` message.
+                // If consumable (can be purchased again)
+                await RNIap.finishTransaction(purchase, true);
+                // If not consumable
+                await RNIap.finishTransaction(purchase, false);
+              } else {
+                // Retry / conclude the purchase is fraudulent, etc...
+              }
+            });
           }
         });
-      }
-    });
 
-    this.purchaseErrorSubscription = purchaseErrorListener((error: PurchaseError) => {
-      console.warn('purchaseErrorListener', error);
-    });
+        this.purchaseErrorSubscription = purchaseErrorListener((error: PurchaseError) => {
+          console.warn('purchaseErrorListener', error);
+        });
+      })
+    })
   }
 
   componentWillUnmount() {
@@ -445,6 +456,8 @@ to record the purchase into your database before calling `consumePurchaseAndroid
 Non-consumable purchases need to be acknowledged on Android, or they will be automatically refunded after 
 a few days. Acknowledge a purchase when you have delivered it to your user by calling `acknowledgePurchaseAndroid()`.
 On iOS non-consumable purchases are finished automatically but this will change in the future so it is recommended that you prepare by simply calling `finishTransactionIOS()` on non-consumables as well.
+
+`finishTransaction()` works for both platforms and is recommended since version 4.1.0 or later. Equal to finishTransactionIOS + consumePurchaseAndroid and acknowledgePurchaseAndroid.
 
 Restoring Purchases
 -----------------------------------
@@ -669,7 +682,7 @@ Q & A
 
     1. Completed an effective "Agreements, Tax, and Banking."
     2. Setup sandbox testing account in "Users and Roles."
-    3. Signed into iOS device with sandbox account.
+    3. Signed into iOS device with sandbox account in "Settings / iTunes & App Stores".
     3. Set up three In-App Purchases with the following status:
         - Ready to Submit
         - Missing Metadata
