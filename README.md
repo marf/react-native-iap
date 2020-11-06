@@ -20,7 +20,7 @@ If you're looking for a module going further than react-native-iap, we recommend
 
 ⚠️ Most of users experiencing issues are caused by:
   - A device simulator, use a real device for testing!
-  - The sandbox environment of the project not being configured properly ([Configure android sandbox](https://www.iaphub.com/docs/set-up-ios/configure-sandbox-testing/), [Configure ios sandbox](https://www.iaphub.com/docs/set-up-ios/configure-sandbox-testing/))
+  - The sandbox environment of the project not being configured properly ([Configure android sandbox](https://www.iaphub.com/docs/set-up-android/configure-sandbox-testing), [Configure ios sandbox](https://www.iaphub.com/docs/set-up-ios/configure-sandbox-testing/))
   - An incorrect usage of the library
 
 
@@ -524,6 +524,10 @@ Property                           | Type      | iOS | And | Comment
 `signatureAndroid`                 | `string`  |     | ✓   | The signature of the purchase data that was signed with the private key of the developer.<br>The data signature uses the `RSASSA-PKCS1-v1_5` scheme.
 `isAcknowledgedAndroid`            | `boolean` |     | ✓   | Checking if purchase has been acknowledged.
 `purchaseStateAndroid`             | `number`  |     | ✓   | Indicating purchase state.
+`packageNameAndroid`               | `string`  |     | ✓   | Get package name.
+`developerPayloadAndroid`          | `string`  |     | ✓   | https://developer.android.com/google/play/billing/developer-payload
+`obfuscatedAccountIdAndroid`       | `string`  |     | ✓   | https://developer.android.com/reference/com/android/billingclient/api/BillingFlowParams.Builder#setobfuscatedaccountidBuilder#setobfuscatedaccountId
+`obfuscatedProfileIdAndroid`       | `string`  |     | ✓   | https://developer.android.com/reference/com/android/billingclient/api/BillingFlowParams.Builder#setobfuscatedprofileid
 
 You need to test with one sandbox account, because the account holds previous purchase history.
 
