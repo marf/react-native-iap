@@ -536,12 +536,14 @@ RCT_EXPORT_METHOD(getPendingTransactions:(RCTPromiseResolveBlock)resolve
 
     NSString* localizedPrice = [formatter stringFromNumber:product.price];
     NSString* introductoryPrice = localizedPrice;
+    NSString* introductoryPriceAsAmountIOS = [product.price stringValue];
 
     NSString* introductoryPricePaymentMode = @"";
     NSString* introductoryPriceNumberOfPeriods = @"";
     NSString* introductoryPriceSubscriptionPeriod = @"";
 
     NSString* currencyCode = @"";
+    NSString* countryCode = @"";
     NSString* periodNumberIOS = @"0";
     NSString* periodUnitIOS = @"";
 
@@ -571,6 +573,7 @@ RCT_EXPORT_METHOD(getPendingTransactions:(RCTPromiseResolveBlock)resolve
             //SKProductDiscount introductoryPriceObj = product.introductoryPrice;
             formatter.locale = product.introductoryPrice.priceLocale;
             introductoryPrice = [formatter stringFromNumber:product.introductoryPrice.price];
+            introductoryPriceAsAmountIOS = [product.introductoryPrice.price stringValue];
 
             switch (product.introductoryPrice.paymentMode) {
                 case SKProductDiscountPaymentModeFreeTrial:
@@ -605,6 +608,7 @@ RCT_EXPORT_METHOD(getPendingTransactions:(RCTPromiseResolveBlock)resolve
 
         } else {
             introductoryPrice = @"";
+            introductoryPriceAsAmountIOS = @"";
             introductoryPricePaymentMode = @"";
             introductoryPriceNumberOfPeriods = @"";
             introductoryPriceSubscriptionPeriod = @"";
@@ -613,6 +617,12 @@ RCT_EXPORT_METHOD(getPendingTransactions:(RCTPromiseResolveBlock)resolve
 
     if (@available(iOS 10.0, *)) {
         currencyCode = product.priceLocale.currencyCode;
+    }
+
+    if (@available(iOS 13.0, *)) {
+        countryCode = [[SKPaymentQueue defaultQueue].storefront countryCode];
+    } else if (@available(iOS 10.0, *)) {
+        countryCode = product.priceLocale.countryCode;
     }
 
     NSArray *discounts;
@@ -626,6 +636,7 @@ RCT_EXPORT_METHOD(getPendingTransactions:(RCTPromiseResolveBlock)resolve
                          product.productIdentifier, @"productId",
                          [product.price stringValue], @"price",
                          currencyCode, @"currency",
+                         countryCode, @"countryCode",
                          itemType, @"type",
                          product.localizedTitle ? product.localizedTitle : @"", @"title",
                          product.localizedDescription ? product.localizedDescription : @"", @"description",
@@ -633,6 +644,7 @@ RCT_EXPORT_METHOD(getPendingTransactions:(RCTPromiseResolveBlock)resolve
                          periodNumberIOS, @"subscriptionPeriodNumberIOS",
                          periodUnitIOS, @"subscriptionPeriodUnitIOS",
                          introductoryPrice, @"introductoryPrice",
+                         introductoryPriceAsAmountIOS, @"introductoryPriceAsAmountIOS",
                          introductoryPricePaymentMode, @"introductoryPricePaymentModeIOS",
                          introductoryPriceNumberOfPeriods, @"introductoryPriceNumberOfPeriodsIOS",
                          introductoryPriceSubscriptionPeriod, @"introductoryPriceSubscriptionPeriodIOS",
